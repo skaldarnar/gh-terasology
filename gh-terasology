@@ -1,0 +1,63 @@
+#!/bin/bash
+set -e
+
+# Snippets to help get started:
+
+# Determine if an executable is in the PATH
+# if ! type -p ruby >/dev/null; then
+#   echo "Ruby not found on the system" >&2
+#   exit 1
+# fi
+
+# Pass arguments through to another command
+# gh issue list "$@" -R cli/cli
+
+# Using the gh api command to retrieve and format information
+# QUERY='
+#   query($endCursor: String) {
+#     viewer {
+#       repositories(first: 100, after: $endCursor) {
+#         nodes {
+#           nameWithOwner
+#           stargazerCount
+#         }
+#       }
+#     }
+#   }
+# '
+# TEMPLATE='
+#   {{- range $repo := .data.viewer.repositories.nodes -}}
+#     {{- printf "name: %s - stargazers: %v\n" $repo.nameWithOwner $repo.stargazerCount -}}
+#   {{- end -}}
+# '
+# exec gh api graphql -f query="${QUERY}" --paginate --template="${TEMPLATE}"
+
+# Find the root directory of the Terasology workspace by looking for a 'settings.gradle' for a root project named 'Terasology'.
+find_root () {
+    local project_dir=$(pwd)
+    while [ "$project_dir" != / ]; do
+      hit=$(grep "rootProject.name = 'Terasology'" "$project_dir/settings.gradle" 2>/dev/null)
+      if [ -n "$hit" ]; then
+        echo "$project_dir"
+        break;
+      fi  
+      project_dir=$(dirname "$project_dir")
+    done
+    echo ""
+}
+
+project_dir="$(find_root)"
+if [ ! -d "$project_dir" ];then 
+    echo "Not in a Terasology workspace"
+    exit 1
+fi
+
+modules=$(gh api /repos/Terasology/Index/contents/distros/$1/gradle.properties -q ".content" | base64 -d | sed -n -e 's/,/\n/g' -e 's/^extraModules=//p')
+for m in $modules; do
+  if [ ! -d "$project_dir/modules/$m" ]; then
+    echo "Cloning module $m"
+    gh repo clone Terasology/$m $project_dir/modules/$m
+  else
+    echo "Skipping $m - already exists"
+  fi  
+done
