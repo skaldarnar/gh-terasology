@@ -2,9 +2,12 @@ package main
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/cli/go-gh"
 	"github.com/cli/go-gh/pkg/api"
+	graphql "github.com/cli/shurcooL-graphql"
+	cli "github.com/urfave/cli/v2"
 )
 
 func dateOfLastRelease(client api.RESTClient, owner string, name string) (string, error) {
@@ -19,30 +22,57 @@ func dateOfLastRelease(client api.RESTClient, owner string, name string) (string
 	return response.PublishedAt, nil
 }
 
-func mergedPrsSince(client api.GQLClient) {
+type pr struct {
+	PullRequest struct {
+		Title  string
+		Number int
+		Author struct {
+			User struct {
+				Login string
+			} `graphql:"... on User"`
+		}
+		Repository struct {
+			Name          string
+			NameWithOwner string
+		}
+	} `graphql:"... on PullRequest"`
+}
+
+func mergedPrsSince(client api.GQLClient, owner string, name string, publishedAt string) ([]pr, error) {
 
 	var query struct {
 		Search struct {
-			Nodes []struct {
-				PullRequest struct {
-					Title string
-				} `graphql:"... on PullRequest"`
+			Nodes    []pr
+			PageInfo struct {
+				HasNextPage bool
+				EndCursor   graphql.String
 			}
-		} `graphql:"search(query:\"repo:MovingBlocks/Terasology is:merged merged:>=2021-10-01\", type: ISSUE, first: 20)"`
+		} `graphql:"search(query:$searchQuery, type: ISSUE, first: 20, after: $cursor)"`
 	}
 
-	variables := map[string]interface{}{}
-
-	err := client.Query("Changelog", &query, variables)
-	if err != nil {
-		fmt.Println(err)
-		return
+	variables := map[string]interface{}{
+		"cursor":      (*graphql.String)(nil),
+		"searchQuery": graphql.String(fmt.Sprintf(`repo:%s/%s is:merged merged:>=%s`, graphql.String(owner), graphql.String(name), graphql.String(publishedAt))),
 	}
-	fmt.Println(query)
+
+	var allPrs []pr
+	for {
+		err := client.Query("Changelog", &query, variables)
+		if err != nil {
+			fmt.Println(err)
+			return nil, err
+		}
+		allPrs = append(allPrs, query.Search.Nodes...)
+		if !query.Search.PageInfo.HasNextPage {
+			break
+		}
+		variables["cursor"] = graphql.NewString(query.Search.PageInfo.EndCursor)
+	}
+
+	return allPrs, nil
 }
 
-func main() {
-	fmt.Println("hi world, this is the gh-terasology extension!")
+func changelog() {
 	client, err := gh.RESTClient(nil)
 	if err != nil {
 		fmt.Println(err)
@@ -54,22 +84,53 @@ func main() {
 		fmt.Println(err)
 		return
 	}
-	fmt.Printf("running as %s\n", response.Login)
 
-	publishedAt, err := dateOfLastRelease(client, "MovingBlocks", "Terasology")
+	repo, err := gh.CurrentRepository()
+	if err != nil {
+		fmt.Println(err)
+	}
+
+	fmt.Printf("★ running as @%s in %s/%s\n", response.Login, repo.Owner(), repo.Name())
+
+	publishedAt, err := dateOfLastRelease(client, repo.Owner(), repo.Name())
 	if err != nil {
 		fmt.Println(err)
 		return
 	}
-	fmt.Printf("latest release published at %s\n", publishedAt)
+	fmt.Printf("★ latest release published at %s\n", publishedAt)
 
 	gql, err := gh.GQLClient(nil)
 	if err != nil {
 		fmt.Println(err)
 		return
 	}
-	mergedPrsSince(gql)
+
+	prs, err := mergedPrsSince(gql, repo.Owner(), repo.Name(), publishedAt)
+	for _, pr := range prs {
+		line := fmt.Sprintf("#%d %s (@%s)", pr.PullRequest.Number, pr.PullRequest.Title, pr.PullRequest.Author.User.Login)
+		fmt.Println(line)
+	}
 }
+
+func main() {
+	(&cli.App{
+		Commands: []*cli.Command{
+			{Name: "changelog",
+				Usage: "show the changelog of PRs since the last pubished release",
+				Action: func(c *cli.Context) error {
+					changelog()
+					return nil
+				},
+			},
+		},
+	}).Run(os.Args)
+}
+
+// For more examples of using cli-v2, see:
+// https://github.com/urfave/cli/blob/master/docs/v2/manual.md#subcommands
 
 // For more examples of using go-gh, see:
 // https://github.com/cli/go-gh/blob/trunk/example_gh_test.go
+
+// For more examples of using graphql/githubv4, see:
+// https://github.com/shurcooL/githubv4
