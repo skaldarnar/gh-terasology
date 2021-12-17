@@ -1,10 +1,10 @@
 # gh-terasology - GitHub CLI extension for Terasology
 
 This is a proof-of-concept [extension](https://github.blog/2021-08-24-github-cli-2-0-includes-extensions/) for `gh`, the GitHub CLI tool.
-The concept of those extensions is quite simple, `gh` basically acts as plug-in manager and allows to call an exectuable as extension. 
+The concept of those extensions is quite simple, `gh` basically acts as plug-in manager and allows to call an executable as extension.
 See [Creating GitHub CLI Extensions](https://docs.github.com/en/github-cli/github-cli/creating-github-cli-extensions) for more details.
 
-The **`terasology` extension** is a simple Bash script. It tries to detect the Terasology workspace root directory (by looking for the respective `settings.gradle` file).
+The **`terasology` extension** is a [precompiled Go extension](https://github.com/cli/gh-extension-precompile).
 
 ## Getting Started
 
@@ -19,14 +19,30 @@ gh extension install skaldarnar/gh-terasology
 
 As this extensions is a proof-of-concept for testing out the capabilities of `gh` extensions for the use with Terasology there's not much to find here yet.
 
-You can initialize the modules in the local workspace to a distribution from the [Index](https://github.com/Terasology/Index) repo by passing in a single positional argument:
+## Contributing
+
+This extension is being build on [Go](https://go.dev/).
+For local development make sure that you [download and install Go](https://go.dev/doc/install) for your platform.
+
+For any changes to take effect the extension has to be compiled into a self-contained executable.
+This is done by simply running :
 
 ```
-gh terasology <distro>
+go build
 ```
 
-For instance, to clone the smaller Iota distro run
+You can install the extension locally from source by running
 
 ```
-gh terasology iota
-```
+gh extension install .
+``` 
+
+It will automatically update whenever the executable is rebuild.
+No need to re-install over and over again.
+
+## Roadmap
+
+- assemble ready-made _changelogs_ for releases of Terasology
+- _multi-repo management_, e.g., to update common configurations (settings, topics, ...)
+- _release management_, e.g., automatically perform actions required for game or module releases
+- _workspace management_, e.g., pinning of repository state, checkout by date, ...
