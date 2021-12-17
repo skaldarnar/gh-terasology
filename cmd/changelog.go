@@ -71,7 +71,7 @@ func mergedPrsSince(client api.GQLClient, owner string, name string, publishedAt
 	return allPrs, nil
 }
 
-func changelog() {
+func changelog(opts *ChangelogOptions) {
 	client, err := gh.RESTClient(nil)
 	if err != nil {
 		fmt.Println(err)
@@ -104,22 +104,43 @@ func changelog() {
 		return
 	}
 
-	prs, err := mergedPrsSince(gql, repo.Owner(), repo.Name(), publishedAt)
+	since := func() string {
+		if opts.Since != "" {
+			return opts.Since
+		} else {
+			return publishedAt
+		}
+	}()
+
+	prs, err := mergedPrsSince(gql, repo.Owner(), repo.Name(), since)
 	for _, pr := range prs {
 		line := fmt.Sprintf("#%d %s (@%s)", pr.PullRequest.Number, pr.PullRequest.Title, pr.PullRequest.Author.User.Login)
 		fmt.Println(line)
 	}
 }
 
-var changelogCmd = &cobra.Command{
-	Use:   "changelog",
-	Short: "show the changelog of PRs since the last published release",
-	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println(cmd.UseLine())
-		changelog()
-	},
+type ChangelogOptions struct {
+	Since string
+}
+
+func NewChangelogCmd() *cobra.Command {
+	opts := &ChangelogOptions{
+		Since: "",
+	}
+
+	changelogCmd := &cobra.Command{
+		Use:   "changelog",
+		Short: "show the changelog of PRs since the last published release",
+		Run: func(cmd *cobra.Command, args []string) {
+			changelog(opts)
+		},
+	}
+
+	changelogCmd.PersistentFlags().StringVar(&opts.Since, "since", "", "(optional) the timestamp since when to include PRs in the changelog. uses the publish date of latest release if not provided.")
+
+	return changelogCmd
 }
 
 func init() {
-	rootCmd.AddCommand(changelogCmd)
+	rootCmd.AddCommand(NewChangelogCmd())
 }
