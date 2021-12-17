@@ -9,7 +9,7 @@ The **`terasology` extension** is a [precompiled Go extension](https://github.co
 ## Getting Started
 
 You can find more information on how to install and use extensions in general under [Using GitHub CLI Extensions](https://docs.github.com/en/github-cli/github-cli/using-github-cli-extensions).
-To test this extension, you can easily install it via 
+To test this extension, you can easily install it via
 
 ```
 gh extension install skaldarnar/gh-terasology
@@ -18,6 +18,25 @@ gh extension install skaldarnar/gh-terasology
 ## Usage
 
 As this extensions is a proof-of-concept for testing out the capabilities of `gh` extensions for the use with Terasology there's not much to find here yet.
+
+To get the changelog for the current repository since a specific date use the `--since` parameter:
+
+```
+gh terasology changelog --since 2021-12-01
+```
+
+To select a different single repository use the `--repo` (or `-R`) flag:
+
+```
+gh terasology changelog --repo MovingBlocks/TerasologyLauncher
+```
+
+To compile a changelog for all repositories of an organization run the following.
+This requires an explicit `--since` flag as the "latest release" cannot be derived in this case.
+
+```
+gh terasology changelog --repo Terasology --since 2021-12-01
+```
 
 ## Contributing
 
@@ -35,7 +54,7 @@ You can install the extension locally from source by running
 
 ```
 gh extension install .
-``` 
+```
 
 It will automatically update whenever the executable is rebuild.
 No need to re-install over and over again.
