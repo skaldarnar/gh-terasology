@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"sort"
 
 	"github.com/cli/go-gh"
 	"github.com/cli/go-gh/pkg/api"
@@ -79,7 +80,7 @@ func mergedPrsSince(client api.GQLClient, repo *Repo, publishedAt string) ([]pr,
 		"searchQuery": graphql.String(fmt.Sprintf(`%s is:merged merged:>=%s`, graphql.String(repo.SearchString()), graphql.String(publishedAt))),
 	}
 
-	fmt.Println(variables["searchQuery"])
+	fmt.Printf("★ search: \t %s\n", variables["searchQuery"])
 
 	var allPrs []pr
 	for {
@@ -106,8 +107,6 @@ func repository(repoOpts string) (*Repo, error) {
 		match := regex.FindStringSubmatch(repoOpts)
 
 		if len(match) == 3 {
-			fmt.Printf("owner: %s\n", match[1])
-			fmt.Printf("repo: %s\n", match[2])
 			return &Repo{
 				Owner: match[1],
 				Name:  match[2],
@@ -143,12 +142,20 @@ func since(client api.RESTClient, sinceUserInput string, repo *Repo) (string, er
 }
 
 func changelog(opts *ChangelogOptions) {
+	// create clients to talk to GitHub's REST (v3) or GraphQL (v4) API
 	client, err := gh.RESTClient(nil)
 	if err != nil {
 		fmt.Println(err)
-		return
+		os.Exit(1)
 	}
 
+	gql, err := gh.GQLClient(nil)
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+
+	// which repository or organization are we targeting?
 	repo, err := repository(opts.Repo)
 	if err != nil {
 		fmt.Println(err)
@@ -156,12 +163,7 @@ func changelog(opts *ChangelogOptions) {
 	}
 	fmt.Printf("★ target: \t %s\n", repo.SearchString())
 
-	gql, err := gh.GQLClient(nil)
-	if err != nil {
-		fmt.Println(err)
-		return
-	}
-
+	// what is the starting point of our changelog?
 	since, err := since(client, opts.Since, repo)
 	if err != nil {
 		fmt.Println(err)
@@ -169,15 +171,38 @@ func changelog(opts *ChangelogOptions) {
 	}
 	fmt.Printf("★ since : \t %s\n", since)
 
+	// let's get all the PRs in some order defined by github (probabyl chronologically sorted by merge date)
 	prs, err := mergedPrsSince(gql, repo, since)
-	for _, pr := range prs {
-		repoString := ""
-		if repo.Name == "" {
-			repoString = pr.PullRequest.Repository.NameWithOwner
-		}
-		line := fmt.Sprintf("%s#%d %s (@%s)", repoString, pr.PullRequest.Number, pr.PullRequest.Title, pr.PullRequest.Author.User.Login)
-		fmt.Println(line)
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
 	}
+
+	// group by repository (in case we are targeting all repos of an organization)
+	prsByRepo := make(map[string][]pr)
+	for _, pr := range prs {
+		prsByRepo[pr.PullRequest.Repository.NameWithOwner] = append(prsByRepo[pr.PullRequest.Repository.NameWithOwner], pr)
+	}
+
+	keys := make([]string, 0, len(prsByRepo))
+	for k := range prsByRepo {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	// TODO: generate a "pretty printed" output, sorting changes into buckets such as "Features" depending on the PR title prefixes
+	shouldPrintRepoName := len(keys) > 1
+	for _, r := range keys {
+		repoPrefix := ""
+		if shouldPrintRepoName {
+			repoPrefix = r
+		}
+		for _, pr := range prsByRepo[r] {
+			line := fmt.Sprintf("%s#%d %s (@%s)", repoPrefix, pr.PullRequest.Number, pr.PullRequest.Title, pr.PullRequest.Author.User.Login)
+			fmt.Println(line)
+		}
+	}
+
 }
 
 func NewChangelogCmd() *cobra.Command {
