@@ -24,6 +24,8 @@ As this extensions is a proof-of-concept for testing out the capabilities of `gh
 This extension is being build on [Go](https://go.dev/).
 For local development make sure that you [download and install Go](https://go.dev/doc/install) for your platform.
 
+**I'm a crazy person trying to force functional style onto everything, so you'll need the cutting edge [Go 1.18 Beta 1](https://go.dev/blog/go1.18beta1) or later with support for generics.**
+
 For any changes to take effect the extension has to be compiled into a self-contained executable.
 This is done by simply running :
 

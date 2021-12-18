@@ -6,6 +6,7 @@ import (
 	"os"
 	"regexp"
 	"sort"
+	"strings"
 
 	"github.com/cli/go-gh"
 	"github.com/cli/go-gh/pkg/api"
@@ -140,6 +141,15 @@ func since(client api.RESTClient, sinceUserInput string, repo *Repo) (string, er
 		return "", errors.New("Cannot determine start date. Either provide `--since` or select a single repository.")
 	}
 }
+// requires go@v1.18 or later for generics support
+func groupBy[T any](xs []T, f func(T) string) map[string][]T {
+	res := make(map[string][]T)
+	for _, x := range xs {
+		res[f(x)] = append(res[f(x)], x)
+	}
+	return res
+}
+
 
 func changelog(opts *ChangelogOptions) {
 	// create clients to talk to GitHub's REST (v3) or GraphQL (v4) API
@@ -179,10 +189,7 @@ func changelog(opts *ChangelogOptions) {
 	}
 
 	// group by repository (in case we are targeting all repos of an organization)
-	prsByRepo := make(map[string][]pr)
-	for _, pr := range prs {
-		prsByRepo[pr.PullRequest.Repository.NameWithOwner] = append(prsByRepo[pr.PullRequest.Repository.NameWithOwner], pr)
-	}
+	prsByRepo := groupBy(prs, func(p pr) string { return p.PullRequest.Repository.NameWithOwner })
 
 	keys := make([]string, 0, len(prsByRepo))
 	for k := range prsByRepo {
