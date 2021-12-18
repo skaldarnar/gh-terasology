@@ -17,6 +17,7 @@ import (
 type ChangelogOptions struct {
 	Since string
 	Repo  string
+	Pretty bool
 }
 
 type Repo struct {
@@ -29,6 +30,10 @@ func (r Repo) SearchString() string {
 		return fmt.Sprintf(`repo:%s/%s`, r.Owner, r.Name)
 	}
 	return fmt.Sprintf(`org:%s`, r.Owner)
+}
+
+type Pr interface {
+	Title() string
 }
 
 type pr struct {
@@ -45,6 +50,10 @@ type pr struct {
 			NameWithOwner string
 		}
 	} `graphql:"... on PullRequest"`
+}
+
+func (pr pr) Title() string {
+	return pr.PullRequest.Title
 }
 
 // Make a GET request to retrieve the publish date of the latest release, if present.
@@ -81,7 +90,7 @@ func mergedPrsSince(client api.GQLClient, repo *Repo, publishedAt string) ([]pr,
 		"searchQuery": graphql.String(fmt.Sprintf(`%s is:merged merged:>=%s`, graphql.String(repo.SearchString()), graphql.String(publishedAt))),
 	}
 
-	fmt.Printf("★ search: \t %s\n", variables["searchQuery"])
+	//DEBUG: fmt.Printf("★ search: \t %s\n", variables["searchQuery"])
 
 	var allPrs []pr
 	for {
@@ -150,6 +159,46 @@ func groupBy[T any](xs []T, f func(T) string) map[string][]T {
 	return res
 }
 
+func getPrCategory(pr Pr) PrCategory {
+	title := strings.ToLower(pr.Title())
+	// features
+	if strings.HasPrefix(title, "feat") {
+		// TODO: or has label 'Type: Improvement'
+		return FEATURES
+	}
+	// bug fixes
+	if strings.HasPrefix(title, "bug") || strings.HasPrefix(title, "fix") {
+		// TODO: or has label 'Type: Bug'
+		return BUG_FIXES
+	}
+	// maintenance
+	if strings.HasPrefix(title, "chore") || strings.HasPrefix(title, "refactor") {
+		// TODO: or has label 'Topic: Stabilization' or 'Type: Chore' or 'Type: Refactoring'
+		return MAINTENANCE
+	}
+	// documentation
+	if strings.HasPrefix(title, "doc") {
+		// TODO: or has label 'Category: Doc'
+		// TODO: or is targeting a tutorial repository? 
+		return DOCUMENTATION
+	}
+	// logistics
+	if strings.HasPrefix(title, "build") || strings.HasPrefix(title, "ci") {
+		// TODO: or has label 'Category: Build/CI'
+		return LOGISTICS
+	}
+	// performance
+	if strings.HasPrefix(title, "perf") {
+		// TODO: or has label 'Category: Performance'
+		return PERFORMANCE
+	}
+	// tests
+	if strings.HasPrefix(title, "test") {
+		// TODO: or has label 'Category: Test/QA'
+		return TESTS
+	}
+	return GENERAL;
+}
 
 func changelog(opts *ChangelogOptions) {
 	// create clients to talk to GitHub's REST (v3) or GraphQL (v4) API
@@ -171,7 +220,7 @@ func changelog(opts *ChangelogOptions) {
 		fmt.Println(err)
 		os.Exit(1)
 	}
-	fmt.Printf("★ target: \t %s\n", repo.SearchString())
+	//DEBUG: fmt.Printf("★ target: \t %s\n", repo.SearchString())
 
 	// what is the starting point of our changelog?
 	since, err := since(client, opts.Since, repo)
@@ -179,7 +228,7 @@ func changelog(opts *ChangelogOptions) {
 		fmt.Println(err)
 		os.Exit(1)
 	}
-	fmt.Printf("★ since : \t %s\n", since)
+	//DEBUG: fmt.Printf("★ since : \t %s\n", since)
 
 	// let's get all the PRs in some order defined by github (probabyl chronologically sorted by merge date)
 	prs, err := mergedPrsSince(gql, repo, since)
@@ -188,28 +237,84 @@ func changelog(opts *ChangelogOptions) {
 		os.Exit(1)
 	}
 
-	// group by repository (in case we are targeting all repos of an organization)
-	prsByRepo := groupBy(prs, func(p pr) string { return p.PullRequest.Repository.NameWithOwner })
+	if opts.Pretty {
+		fmt.Println(prettyPrint(prs))
+	} else {
+		// group by repository (in case we are targeting all repos of an organization)
+		prsByRepo := groupBy(prs, func(p pr) string { return p.PullRequest.Repository.NameWithOwner })
 
-	keys := make([]string, 0, len(prsByRepo))
-	for k := range prsByRepo {
-		keys = append(keys, k)
+		keys := make([]string, 0, len(prsByRepo))
+		for k := range prsByRepo {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+
+		// TODO: generate a "pretty printed" output, sorting changes into buckets such as "Features" depending on the PR title prefixes
+
+		shouldPrintRepoName := len(keys) > 1
+		for _, r := range keys {
+			repoPrefix := ""
+			if shouldPrintRepoName {
+				repoPrefix = r
+			}
+			for _, pr := range prsByRepo[r] {
+				line := fmt.Sprintf("%s#%d %s (@%s)", repoPrefix, pr.PullRequest.Number, pr.PullRequest.Title, pr.PullRequest.Author.User.Login)
+				fmt.Println(line)
+			}
+		}
 	}
-	sort.Strings(keys)
+}
 
-	// TODO: generate a "pretty printed" output, sorting changes into buckets such as "Features" depending on the PR title prefixes
-	shouldPrintRepoName := len(keys) > 1
-	for _, r := range keys {
+func addSection(sb *strings.Builder, category PrCategory, prs []pr, usePrefix bool) {
+	sb.WriteString("## " + category.Pretty() + "\n")
+	sb.WriteString("\n")
+	addLines(sb, prs, usePrefix)
+	sb.WriteString("\n")
+}
+
+func addLines(sb *strings.Builder, prs []pr, usePrefix bool) {
+	for _, pr := range prs {
 		repoPrefix := ""
-		if shouldPrintRepoName {
-			repoPrefix = r
+		if usePrefix {
+			repoPrefix = pr.PullRequest.Repository.NameWithOwner
 		}
-		for _, pr := range prsByRepo[r] {
-			line := fmt.Sprintf("%s#%d %s (@%s)", repoPrefix, pr.PullRequest.Number, pr.PullRequest.Title, pr.PullRequest.Author.User.Login)
-			fmt.Println(line)
-		}
+		line := fmt.Sprintf("- %s#%d %s (@%s)\n", repoPrefix, pr.PullRequest.Number, pr.PullRequest.Title, pr.PullRequest.Author.User.Login)
+		sb.WriteString(line)			
+	}	
+}
+
+func prettyPrint(prs []pr) string {
+
+	var changelog = make(map[PrCategory][]pr)
+	// the set of repositories that are present in the changelog (we don't have a set data structure, therefore using a map)
+	var repos = make(map[string]struct{})
+
+	for _, pr := range prs {
+		category := getPrCategory(pr)
+		changelog[category] = append(changelog[category], pr)
+		repos[pr.PullRequest.Repository.NameWithOwner] = struct{}{}
 	}
 
+	// sort by repsoitory name so that changes within the same repo appear together
+	for _, prs := range changelog {
+		sort.SliceStable(prs, func(i, j int) bool {
+			return prs[i].PullRequest.Repository.NameWithOwner < prs[j].PullRequest.Repository.NameWithOwner})
+	}
+
+	shouldPrintRepoName := len(repos) > 1
+
+	var sb strings.Builder
+	sb.WriteString("# Changelog\n\n")
+	addSection(&sb, FEATURES, changelog[FEATURES], shouldPrintRepoName)
+	addSection(&sb, BUG_FIXES, changelog[BUG_FIXES], shouldPrintRepoName)
+	addSection(&sb, MAINTENANCE, changelog[MAINTENANCE], shouldPrintRepoName)
+	addSection(&sb, TESTS, changelog[TESTS], shouldPrintRepoName)
+	addSection(&sb, PERFORMANCE, changelog[PERFORMANCE], shouldPrintRepoName)
+	addSection(&sb, DOCUMENTATION, changelog[DOCUMENTATION], shouldPrintRepoName)
+	addSection(&sb, LOGISTICS, changelog[LOGISTICS], shouldPrintRepoName)
+	addSection(&sb, GENERAL, changelog[GENERAL], shouldPrintRepoName)
+	
+	return sb.String()
 }
 
 func NewChangelogCmd() *cobra.Command {
@@ -228,6 +333,7 @@ func NewChangelogCmd() *cobra.Command {
 
 	cmd.PersistentFlags().StringVar(&opts.Since, "since", "", "Start changelog at date `since`")
 	cmd.PersistentFlags().StringVarP(&opts.Repo, "repo", "R", "", "Select another repository or organization using the OWNER[/REPO] format")
+	cmd.PersistentFlags().BoolVar(&opts.Pretty, "pretty", false, "Pretty-print changelog as markdown")
 
 	return cmd
 }
