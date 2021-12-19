@@ -5,12 +5,13 @@ go 1.18
 require (
 	github.com/cli/go-gh v0.0.1
 	github.com/cli/shurcooL-graphql v0.0.1
+	github.com/enescakir/emoji v1.0.0
+	github.com/kr/text v0.1.0
 	github.com/spf13/cobra v1.3.0
 )
 
 require (
 	github.com/cli/safeexec v1.0.0 // indirect
-	github.com/enescakir/emoji v1.0.0 // indirect
 	github.com/henvic/httpretty v0.0.6 // indirect
 	github.com/inconshreveable/mousetrap v1.0.0 // indirect
 	github.com/spf13/pflag v1.0.5 // indirect

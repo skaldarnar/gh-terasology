@@ -11,15 +11,51 @@ import (
 	"github.com/cli/go-gh"
 	"github.com/cli/go-gh/pkg/api"
 	graphql "github.com/cli/shurcooL-graphql"
+	"github.com/kr/text"
 	"github.com/skaldarnar/gh-terasology/pkg/fun"
 	"github.com/spf13/cobra"
 )
 
 type ChangelogOptions struct {
-	Since string
-	Repo  string
+	Since  string
+	Until  string
+	Repo   string
 	Pretty bool
 }
+
+func NewChangelogCmd() *cobra.Command {
+	opts := &ChangelogOptions{
+		Since: "",
+		Repo:  "",
+	}
+
+	example := "changelog --repo MovingBlocks/Terasology\n"
+	example += "    Print the changelog since latest release for MovingBlocks/Terasology to the console\n"
+	example += "changelog --repo Terasology --since 2021-12-01 --pretty\n"
+	example += "    Print markdown-formatted changelog for all repositories under the Terasology org since 1st Dec 2021 to the console\n"
+
+	cmd := &cobra.Command{
+		Use:   "changelog",
+		Short: "show the changelog of PRs since the last published release",
+		Run: func(cmd *cobra.Command, args []string) {
+			changelog(opts)
+		},
+		Example: text.Indent(example, "    "),
+	}
+
+	cmd.PersistentFlags().StringVar(&opts.Since, "since", "", "Start the changelog at date `since` (ISO 8601)")
+	cmd.PersistentFlags().StringVar(&opts.Until, "until", "", "End the changelog at date `until` (ISO 8601)")
+	cmd.PersistentFlags().StringVarP(&opts.Repo, "repo", "R", "", "Select another repository or organization using the OWNER[/REPO] format")
+	cmd.PersistentFlags().BoolVar(&opts.Pretty, "pretty", false, "Pretty-print changelog as markdown")
+
+	return cmd
+}
+
+func init() {
+	rootCmd.AddCommand(NewChangelogCmd())
+}
+
+// --------------------------------------------------------------------------------------------------------------------
 
 type Repo struct {
 	Owner string
@@ -74,7 +110,17 @@ func dateOfLastRelease(client api.RESTClient, owner string, name string) (string
 	return response.PublishedAt, nil
 }
 
-func mergedPrsSince(client api.GQLClient, repo *Repo, publishedAt string) ([]pr, error) {
+func timespanSearchQuery(since string, until string) string {
+	if since != "" && until != "" {
+		return fmt.Sprintf(`%s..%s`, since, until)
+	} else if since != "" {
+		return ">=" + since
+	} else {
+		return "<" + until
+	}
+}
+
+func mergedPrsSince(client api.GQLClient, repo *Repo, since string, until string) ([]pr, error) {
 
 	var query struct {
 		Search struct {
@@ -83,12 +129,12 @@ func mergedPrsSince(client api.GQLClient, repo *Repo, publishedAt string) ([]pr,
 				HasNextPage bool
 				EndCursor   graphql.String
 			}
-		} `graphql:"search(query:$searchQuery, type: ISSUE, first: 20, after: $cursor)"`
+		} `graphql:"search(query:$searchQuery, type: ISSUE, first: 100, after: $cursor)"`
 	}
 
 	variables := map[string]interface{}{
 		"cursor":      (*graphql.String)(nil),
-		"searchQuery": graphql.String(fmt.Sprintf(`%s is:merged merged:>=%s`, graphql.String(repo.SearchString()), graphql.String(publishedAt))),
+		"searchQuery": graphql.String(fmt.Sprintf(`%s is:merged merged:%s`, graphql.String(repo.SearchString()), graphql.String(timespanSearchQuery(since, until)))),
 	}
 
 	//DEBUG: fmt.Printf("★ search: \t %s\n", variables["searchQuery"])
@@ -172,7 +218,7 @@ func getPrCategory(pr Pr) PrCategory {
 	// documentation
 	if strings.HasPrefix(title, "doc") {
 		// TODO: or has label 'Category: Doc'
-		// TODO: or is targeting a tutorial repository? 
+		// TODO: or is targeting a tutorial repository?
 		return DOCUMENTATION
 	}
 	// logistics
@@ -224,7 +270,7 @@ func changelog(opts *ChangelogOptions) {
 	//DEBUG: fmt.Printf("★ since : \t %s\n", since)
 
 	// let's get all the PRs in some order defined by github (probabyl chronologically sorted by merge date)
-	prs, err := mergedPrsSince(gql, repo, since)
+	prs, err := mergedPrsSince(gql, repo, since, opts.Until)
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
@@ -272,8 +318,8 @@ func addLines(sb *strings.Builder, prs []pr, usePrefix bool) {
 			repoPrefix = pr.PullRequest.Repository.NameWithOwner
 		}
 		line := fmt.Sprintf("- %s#%d %s (@%s)\n", repoPrefix, pr.PullRequest.Number, pr.PullRequest.Title, pr.PullRequest.Author.User.Login)
-		sb.WriteString(line)			
-	}	
+		sb.WriteString(line)
+	}
 }
 
 func prettyPrint(prs []pr) string {
@@ -291,7 +337,8 @@ func prettyPrint(prs []pr) string {
 	// sort by repsoitory name so that changes within the same repo appear together
 	for _, prs := range changelog {
 		sort.SliceStable(prs, func(i, j int) bool {
-			return prs[i].PullRequest.Repository.NameWithOwner < prs[j].PullRequest.Repository.NameWithOwner})
+			return prs[i].PullRequest.Repository.NameWithOwner < prs[j].PullRequest.Repository.NameWithOwner
+		})
 	}
 
 	shouldPrintRepoName := len(repos) > 1
@@ -306,31 +353,6 @@ func prettyPrint(prs []pr) string {
 	addSection(&sb, DOCUMENTATION, changelog[DOCUMENTATION], shouldPrintRepoName)
 	addSection(&sb, LOGISTICS, changelog[LOGISTICS], shouldPrintRepoName)
 	addSection(&sb, GENERAL, changelog[GENERAL], shouldPrintRepoName)
-	
+
 	return sb.String()
-}
-
-func NewChangelogCmd() *cobra.Command {
-	opts := &ChangelogOptions{
-		Since: "",
-		Repo:  "",
-	}
-
-	cmd := &cobra.Command{
-		Use:   "changelog",
-		Short: "show the changelog of PRs since the last published release",
-		Run: func(cmd *cobra.Command, args []string) {
-			changelog(opts)
-		},
-	}
-
-	cmd.PersistentFlags().StringVar(&opts.Since, "since", "", "Start changelog at date `since`")
-	cmd.PersistentFlags().StringVarP(&opts.Repo, "repo", "R", "", "Select another repository or organization using the OWNER[/REPO] format")
-	cmd.PersistentFlags().BoolVar(&opts.Pretty, "pretty", false, "Pretty-print changelog as markdown")
-
-	return cmd
-}
-
-func init() {
-	rootCmd.AddCommand(NewChangelogCmd())
 }
