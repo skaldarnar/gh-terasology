@@ -327,12 +327,19 @@ func prettyPrint(prs []pr) string {
 	var changelog = make(map[PrCategory][]pr)
 	// the set of repositories that are present in the changelog (we don't have a set data structure, therefore using a map)
 	var repos = make(map[string]struct{})
+	var contributorSet = make(map[string]struct{})
 
 	for _, pr := range prs {
 		category := getPrCategory(pr)
 		changelog[category] = append(changelog[category], pr)
 		repos[pr.PullRequest.Repository.NameWithOwner] = struct{}{}
+		contributorSet[pr.PullRequest.Author.User.Login] = struct{}{}
 	}
+
+	// sort contributors alphabetically
+	contributors := fun.Keys(contributorSet)
+	contributors = fun.MapI(contributors, func(c string) string { return "@" + c })
+	sort.Strings(contributors)
 
 	// sort by repsoitory name so that changes within the same repo appear together
 	for _, prs := range changelog {
@@ -344,6 +351,11 @@ func prettyPrint(prs []pr) string {
 	shouldPrintRepoName := len(repos) > 1
 
 	var sb strings.Builder
+
+	sb.WriteString("Special thanks to everyone that contributed to this release:\n")
+	sb.WriteString(strings.Join(contributors, ", "))
+	sb.WriteString(".\n\n")
+
 	sb.WriteString("# Changelog\n\n")
 	addSection(&sb, FEATURES, changelog[FEATURES], shouldPrintRepoName)
 	addSection(&sb, BUG_FIXES, changelog[BUG_FIXES], shouldPrintRepoName)
