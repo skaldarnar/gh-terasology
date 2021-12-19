@@ -11,6 +11,7 @@ import (
 	"github.com/cli/go-gh"
 	"github.com/cli/go-gh/pkg/api"
 	graphql "github.com/cli/shurcooL-graphql"
+	"github.com/skaldarnar/gh-terasology/pkg/fun"
 	"github.com/spf13/cobra"
 )
 
@@ -150,14 +151,6 @@ func since(client api.RESTClient, sinceUserInput string, repo *Repo) (string, er
 		return "", errors.New("Cannot determine start date. Either provide `--since` or select a single repository.")
 	}
 }
-// requires go@v1.18 or later for generics support
-func groupBy[T any](xs []T, f func(T) string) map[string][]T {
-	res := make(map[string][]T)
-	for _, x := range xs {
-		res[f(x)] = append(res[f(x)], x)
-	}
-	return res
-}
 
 func getPrCategory(pr Pr) PrCategory {
 	title := strings.ToLower(pr.Title())
@@ -197,7 +190,7 @@ func getPrCategory(pr Pr) PrCategory {
 		// TODO: or has label 'Category: Test/QA'
 		return TESTS
 	}
-	return GENERAL;
+	return GENERAL
 }
 
 func changelog(opts *ChangelogOptions) {
@@ -241,7 +234,7 @@ func changelog(opts *ChangelogOptions) {
 		fmt.Println(prettyPrint(prs))
 	} else {
 		// group by repository (in case we are targeting all repos of an organization)
-		prsByRepo := groupBy(prs, func(p pr) string { return p.PullRequest.Repository.NameWithOwner })
+		prsByRepo := fun.GroupBy(prs, func(p pr) string { return p.PullRequest.Repository.NameWithOwner })
 
 		keys := make([]string, 0, len(prsByRepo))
 		for k := range prsByRepo {
