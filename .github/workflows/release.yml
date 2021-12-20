@@ -14,4 +14,4 @@ jobs:
       - uses: skaldarnar/gh-extension-precompile@trunk
         with:
           go_stable: 'false'
-          go_version: "1.18beta1"
+          go_version: "1.18.0-beta1"
