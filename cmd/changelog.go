@@ -305,10 +305,12 @@ func changelog(opts *ChangelogOptions) {
 }
 
 func addSection(sb *strings.Builder, category PrCategory, prs []pr, usePrefix bool) {
-	sb.WriteString("## " + category.Pretty() + "\n")
-	sb.WriteString("\n")
-	addLines(sb, prs, usePrefix)
-	sb.WriteString("\n")
+	if len(prs) > 0 {
+		sb.WriteString("## " + category.Pretty() + "\n")
+		sb.WriteString("\n")
+		addLines(sb, prs, usePrefix)
+		sb.WriteString("\n")
+	}
 }
 
 func addLines(sb *strings.Builder, prs []pr, usePrefix bool) {
